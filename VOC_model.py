@@ -5,24 +5,66 @@ import cv2
 import numpy as np
 import os
 import random
+from model import VGG_16
 
 
 class Model(object):
 
-    def __init__(self):
-        self.image_size = 300
-        self.batch_size = 64
-        # self.image_path = '/home/kevin/DataSet/VOCdevkit/VOC2007'
-        self.image_path = '/home/kevin/DataSet/COCO/VOC_COCO/2017'
-        self.num_grids = 19
-        self.learning_rate = 1e-4
-        self.save_path = './log/'
+    def __init__(self, is_training=True):
 
-        self.COORD_SCALE = 10.0
+        self.VOC_LABELS = {
+            'aeroplane': 0,
+            'bicycle': 1,
+            'bird': 2,
+            'boat': 3,
+            'bottle': 4,
+            'bus': 5,
+            'car': 6,
+            'cat': 7,
+            'chair': 8,
+            'cow': 9,
+            'diningtable': 10,
+            'dog': 11,
+            'horse': 12,
+            'motorbike': 13,
+            'person': 14,
+            'pottedplant': 15,
+            'sheep': 16,
+            'sofa': 17,
+            'train': 18,
+            'tvmonitor': 19,
+        }
+        # self.VOC_LABELS = {
+        #     '001': 0,
+        #     '002': 1,
+        #     '003': 2,
+        #     '004': 3,
+        #     '005': 4
+        # }
+
+        self.image_size = 448
+        self.batch_size = 32
+        # self.image_path = '/home/kevin/DataSet/VOCdevkit/VOC2007'
+        # self.image_path = '/home/kevin/DataSet/bread'
+        self.image_path = '/home/kevin/DataSet/COCO/VOC_COCO_with_cls/2017'
+        self.vgg_npz_path = './model/weight/vgg16_weights.npz'
+        self.tensorboard_path = './vgg_tensorboard'
+
+        self.num_grids = 26
+        self.learning_rate = 1e-4
+        self.save_path = './vgg_log/'
+
+        self.COORD_SCALE = 15.0
         self.OBJECT_SCALE = 10.0
         self.NOOBJECT_SCALE = 10.0
 
         self.num_anchors = 9
+        self.num_class = 20
+        self.is_training = is_training
+        self.keep_prob = 1.0
+
+        self.exclude_node = []
+
 
     # def network(self, inputs):
     #     with slim.arg_scope([slim.conv2d], activation_fn=self.leaky_relu(0.1),
@@ -152,94 +194,246 @@ class Model(object):
             net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv33')
             net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv34')
             net += shortcut
-            net = slim.conv2d(net, 45, 1, padding='SAME', scope='conv35')
+            net = slim.dropout(net, keep_prob=self.keep_prob, is_training=self.is_training)
+            bnd_net = slim.conv2d(net, 45, 1, padding='SAME', scope='conv35')
+            cls_net = slim.conv2d(net, 20, 1, padding='SAME', scope='conv36')
+            net = tf.concat((bnd_net, cls_net), axis=-1)
+            # net = slim.conv2d(net, 65, 1, padding='SAME', scope='conv36')
             # net = slim.conv2d(net, 16, 1, padding='SAME', scope='conv16')
             # net = slim.conv2d(net, 5, 1, padding='SAME', scope='conv17')
             return net
 
-    # def new_network_1(self, inputs):
-    #     with slim.arg_scope([slim.conv2d], activation_fn=self.leaky_relu(0.1),
-    #                         weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-    #                         weights_regularizer=slim.l2_regularizer(0.0005),
-    #                         biases_initializer=tf.constant_initializer(0.1)):
-    #         inputs += tf.random_normal(tf.shape(inputs), 0.0001, 0.00005)
-    #         net = slim.conv2d(inputs, 8, 5, padding='SAME', scope='conv1')
-    #
-    #         net1 = slim.conv2d(net, 8, 3, 2, padding='SAME', scope='conv2')
-    #         net2 = slim.max_pool2d(net, 2, padding='SAME', scope='pool1')
-    #         net = tf.concat((net1, net2), axis=-1)
-    #
-    #         shortcut = net
-    #         net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv3')
-    #         net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv4')
-    #         net += shortcut
-    #         # net = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool2')
-    #         net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv5')
-    #         net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv6')
-    #
-    #         net1 = slim.conv2d(net, 16, 3, 2, padding='SAME', scope='conv6_2')
-    #         net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool3')
-    #         net = tf.concat((net1, net2), axis=-1)
-    #
-    #         shortcut = net
-    #         net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv7')
-    #         net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv8')
-    #         net += shortcut
-    #
-    #         net1 = slim.conv2d(net, 32, 3, 2, padding='SAME', scope='conv9_1')
-    #         net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool4')
-    #         net = tf.concat((net1, net2), axis=-1)
-    #
-    #         shortcut = net
-    #         net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv9_2')
-    #         net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv10')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv11')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv12')
-    #         net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv13')
-    #         net += shortcut
-    #
-    #         net1 = slim.conv2d(net, 128, 3, 2, padding='SAME', scope='conv14')
-    #         net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool5')
-    #         net = tf.concat((net1, net2), axis=-1)
-    #
-    #         shortcut = net
-    #         net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv15')
-    #         net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv16')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv17')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv18')
-    #         net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv19')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv20')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv21')
-    #         net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv22')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv23')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv24')
-    #         net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv25')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv26')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv27')
-    #         net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv28')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv29')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 128, 1, padding='SAME', scope='conv30')
-    #         net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv31')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv32')
-    #         shortcut = net
-    #         net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv33')
-    #         net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv34')
-    #         net += shortcut
-    #         net = slim.conv2d(net, 45, 1, padding='SAME', scope='conv35')
-    #         return net
+    def new_network_1(self, inputs):
+        with slim.arg_scope([slim.conv2d], activation_fn=self.leaky_relu(0.1),
+                            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                            weights_regularizer=slim.l2_regularizer(0.0005),
+                            biases_initializer=tf.constant_initializer(0.1)):
+            # inputs += tf.random_normal(tf.shape(inputs), 0.001, 0.0003)
+            net = slim.conv2d(inputs, 8, 5, padding='SAME', scope='conv1')
+
+            net1_1 = slim.conv2d(net, 8, 17, 2, padding='SAME', scope='conv2_1')
+            net1_2 = slim.conv2d(net, 8, 5, 2, padding='SAME', scope='conv2_2')
+            net1_3 = slim.conv2d(net, 8, 3, 2, padding='SAME', scope='conv2_3')
+            net1 = net1_1 + net1_2 + net1_3
+            net2 = slim.max_pool2d(net, 2, padding='SAME', scope='pool1')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv3')
+            net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv4')
+            net += shortcut
+            # net = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool2')
+            # net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv5')
+            # net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv6')
+
+            net1_1 = slim.conv2d(net, 16, 9, 2, padding='SAME', scope='conv6_2')
+            # net1_2 = slim.conv2d(net, 16, 5, 2, padding='SAME', scope='conv6_3')
+            # net1_3 = slim.conv2d(net, 16, 3, 2, padding='SAME', scope='conv6_4')
+            net1 = net1_1
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool3')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv7')
+            net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv8')
+            net += shortcut
+
+            net1_1 = slim.conv2d(net, 32, 7, 2, padding='SAME', scope='conv9_1')
+            net1_2 = slim.conv2d(net, 32, 5, 2, padding='SAME', scope='conv9_2')
+            net1_3 = slim.conv2d(net, 32, 3, 2, padding='SAME', scope='conv9_3')
+            net1 = net1_1 + net1_2 + net1_3
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool4')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv9_4')
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv10')
+            net += shortcut
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv11')
+            shortcut = net
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv12')
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv13')
+            net += shortcut
+
+            net1_1 = slim.conv2d(net, 128, 5, 2, padding='SAME', scope='conv14_1')
+            # net1_2 = slim.conv2d(net, 128, 5, 2, padding='SAME', scope='conv14_2')
+            # net1_3 = slim.conv2d(net, 128, 3, 2, padding='SAME', scope='conv14_3')
+            net1 = net1_1
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool5')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv15')
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv16')
+            net += shortcut
+
+            net1_1 = slim.conv2d(net, 256, 3, 2, padding='SAME', scope='conv16_1')
+            net1 = net1_1
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='conv16_2')
+            net = tf.concat((net1, net2), axis=-1)
+
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv17')
+            shortcut = net
+            sshortcut = net
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv18')
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv19')
+            net += shortcut
+            net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv20')
+            # shortcut = net
+            # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv21')
+            # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv22')
+            # net += shortcut
+            net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv23')
+            net += sshortcut
+            shortcut = net
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv24')
+            net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv25')
+            net += shortcut
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv26')
+            # shortcut = net
+            # net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv27')
+            # net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv28')
+            # net += shortcut
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv29')
+            shortcut = net
+            net = slim.conv2d(net, 128, 1, padding='SAME', scope='conv30')
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv31')
+            net += shortcut
+            net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv32')
+            shortcut = net
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv33')
+            net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv34')
+            net += shortcut
+
+            cls_net = slim.conv2d(net, 20, 2, padding='SAME', scope='cls_conv1')
+            cls_net = slim.conv2d(cls_net, 20, 1, padding='SAME', scope='cls_conv2')
+
+            box_net = slim.conv2d(net, 45, 2, padding='SAME', scope='box_conv1')
+            box_net = slim.conv2d(box_net, 45, 1, padding='SAME', scope='box_conv2')
+            # net = slim.dropout(net, self.keep_prob, is_training=self.is_training)
+            # net = slim.conv2d(net, 65, 1, padding='SAME', scope='conv35')
+
+            net = tf.concat((box_net, cls_net), axis=-1)
+            return net
+
+    def new_network_2(self, inputs):
+        with slim.arg_scope([slim.conv2d], activation_fn=self.leaky_relu(0.1),
+                            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                            weights_regularizer=slim.l2_regularizer(0.0005),
+                            biases_initializer=tf.constant_initializer(0.1)):
+            # inputs += tf.random_normal(tf.shape(inputs), 0.001, 0.0003)
+            net = slim.conv2d(inputs, 8, 5, padding='SAME', scope='conv1')
+
+            net1_1 = slim.conv2d(net, 8, 17, 2, padding='SAME', scope='conv2_1')
+            net1_2 = slim.conv2d(net, 8, 5, 2, padding='SAME', scope='conv2_2')
+            net1_3 = slim.conv2d(net, 8, 3, 2, padding='SAME', scope='conv2_3')
+            net1 = net1_1 + net1_2 + net1_3
+            net2 = slim.max_pool2d(net, 2, padding='SAME', scope='pool1')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv3')
+            net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv4')
+            net += shortcut
+            # net = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool2')
+            # net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv5')
+            # net = slim.conv2d(net, 16, 3, padding='SAME', scope='conv6')
+
+            net1_1 = slim.conv2d(net, 16, 9, 2, padding='SAME', scope='conv6_2')
+            # net1_2 = slim.conv2d(net, 16, 5, 2, padding='SAME', scope='conv6_3')
+            # net1_3 = slim.conv2d(net, 16, 3, 2, padding='SAME', scope='conv6_4')
+            net1 = net1_1
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool3')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv7')
+            net = slim.conv2d(net, 32, 3, padding='SAME', scope='conv8')
+            net += shortcut
+
+            net1_1 = slim.conv2d(net, 32, 7, 2, padding='SAME', scope='conv9_1')
+            net1_2 = slim.conv2d(net, 32, 5, 2, padding='SAME', scope='conv9_2')
+            net1_3 = slim.conv2d(net, 32, 3, 2, padding='SAME', scope='conv9_3')
+            net1 = net1_1 + net1_2 + net1_3
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool4')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv9_4')
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv10')
+            net += shortcut
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv11')
+            shortcut = net
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv12')
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv13')
+            net += shortcut
+
+            net1_1 = slim.conv2d(net, 128, 5, 2, padding='SAME', scope='conv14_1')
+            # net1_2 = slim.conv2d(net, 128, 5, 2, padding='SAME', scope='conv14_2')
+            # net1_3 = slim.conv2d(net, 128, 3, 2, padding='SAME', scope='conv14_3')
+            net1 = net1_1
+            net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='pool5')
+            net = tf.concat((net1, net2), axis=-1)
+
+            shortcut = net
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv15')
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv16')
+            net += shortcut
+
+            # net1_1 = slim.conv2d(net, 256, 3, 2, padding='SAME', scope='conv16_1')
+            # net1 = net1_1
+            # net2 = slim.max_pool2d(net, 2, 2, padding='SAME', scope='conv16_2')
+            # net = tf.concat((net1, net2), axis=-1)
+
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv17')
+            shortcut = net
+            sshortcut = net
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv18')
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv19')
+            net += shortcut
+            net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv20')
+            # shortcut = net
+            # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv21')
+            # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='conv22')
+            # net += shortcut
+            net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv23')
+            net += sshortcut
+            shortcut = net
+            net = slim.conv2d(net, 512, 3, padding='SAME', scope='conv24')
+            net = slim.conv2d(net, 512, 1, padding='SAME', scope='conv25')
+            net += shortcut
+            net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv26')
+            # shortcut = net
+            # net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv27')
+            # net = slim.conv2d(net, 256, 3, padding='SAME', scope='conv28')
+            # net += shortcut
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv29')
+            shortcut = net
+            net = slim.conv2d(net, 128, 1, padding='SAME', scope='conv30')
+            net = slim.conv2d(net, 128, 3, padding='SAME', scope='conv31')
+            net += shortcut
+            net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv32')
+            shortcut = net
+            net = slim.conv2d(net, 64, 3, padding='SAME', scope='conv33')
+            net = slim.conv2d(net, 64, 1, padding='SAME', scope='conv34')
+            net += shortcut
+
+            cls_net = slim.conv2d(net, 20, 2, padding='SAME', scope='cls_conv1')
+            cls_net = slim.conv2d(cls_net, 20, 1, padding='SAME', scope='cls_conv2')
+
+            box_net = slim.conv2d(net, 45, 2, padding='SAME', scope='box_conv1')
+            box_net = slim.conv2d(box_net, 45, 1, padding='SAME', scope='box_conv2')
+            # net = slim.dropout(net, self.keep_prob, is_training=self.is_training)
+            # net = slim.conv2d(net, 65, 1, padding='SAME', scope='conv35')
+
+            net = tf.concat((box_net, cls_net), axis=-1)
+            return net
+
+    def VGG_net(self, inputs):
+        inputs *= 255.0
+        vgg = VGG_16.vgg16(inputs, './model/weight/vgg16_weights.npz')
+        net = vgg.convlayers()
+        return net, vgg
 
     '''
         Anchor boxes
@@ -290,29 +484,30 @@ class Model(object):
         # predictions = tf.maximum(predictions, 0.0)
         anchor_boxes = self.anchor_boxes()
         raw_labels = labels
-        labels = tf.tile(labels, [1, 1, 1, self.num_anchors])
+        raw_predictions = predictions
+        labels = tf.tile(labels[..., :5], [1, 1, 1, self.num_anchors])
         labels = tf.reshape(labels, (self.batch_size, self.num_grids, self.num_grids, self.num_anchors, 5))
 
-        predictions = tf.reshape(predictions, (self.batch_size, self.num_grids, self.num_grids, self.num_anchors, 5))
+        predictions_ = tf.reshape(predictions[..., :45], (self.batch_size, self.num_grids, self.num_grids, self.num_anchors, 5))
         predictions_ab = tf.stack([
-            predictions[:, :, :, 0] * [1., 1., 1., tf.cast(anchor_boxes[0][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[0][1], dtype=tf.float32)],
-            predictions[:, :, :, 1] * [1., 1., 1., tf.cast(anchor_boxes[1][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[1][1], dtype=tf.float32)],
-            predictions[:, :, :, 2] * [1., 1., 1., tf.cast(anchor_boxes[2][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[2][1], dtype=tf.float32)],
-            predictions[:, :, :, 3] * [1., 1., 1., tf.cast(anchor_boxes[3][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[3][1], dtype=tf.float32)],
-            predictions[:, :, :, 4] * [1., 1., 1., tf.cast(anchor_boxes[4][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[4][1], dtype=tf.float32)],
-            predictions[:, :, :, 5] * [1., 1., 1., tf.cast(anchor_boxes[5][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[5][1], dtype=tf.float32)],
-            predictions[:, :, :, 6] * [1., 1., 1., tf.cast(anchor_boxes[6][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[6][1], dtype=tf.float32)],
-            predictions[:, :, :, 7] * [1., 1., 1., tf.cast(anchor_boxes[7][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[7][1], dtype=tf.float32)],
-            predictions[:, :, :, 8] * [1., 1., 1., tf.cast(anchor_boxes[8][0], dtype=tf.float32),
-                                       tf.cast(anchor_boxes[8][1], dtype=tf.float32)]
+            predictions_[:, :, :, 0] * [1., 1., 1., tf.cast(anchor_boxes[0][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[0][1], dtype=tf.float32)],
+            predictions_[:, :, :, 1] * [1., 1., 1., tf.cast(anchor_boxes[1][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[1][1], dtype=tf.float32)],
+            predictions_[:, :, :, 2] * [1., 1., 1., tf.cast(anchor_boxes[2][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[2][1], dtype=tf.float32)],
+            predictions_[:, :, :, 3] * [1., 1., 1., tf.cast(anchor_boxes[3][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[3][1], dtype=tf.float32)],
+            predictions_[:, :, :, 4] * [1., 1., 1., tf.cast(anchor_boxes[4][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[4][1], dtype=tf.float32)],
+            predictions_[:, :, :, 5] * [1., 1., 1., tf.cast(anchor_boxes[5][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[5][1], dtype=tf.float32)],
+            predictions_[:, :, :, 6] * [1., 1., 1., tf.cast(anchor_boxes[6][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[6][1], dtype=tf.float32)],
+            predictions_[:, :, :, 7] * [1., 1., 1., tf.cast(anchor_boxes[7][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[7][1], dtype=tf.float32)],
+            predictions_[:, :, :, 8] * [1., 1., 1., tf.cast(anchor_boxes[8][0], dtype=tf.float32),
+                                        tf.cast(anchor_boxes[8][1], dtype=tf.float32)]
         ], axis=3)
 
         iou_predict_truth = self.cal_iou(predictions_ab[..., 1:], labels[..., 1:])
@@ -332,11 +527,11 @@ class Model(object):
 
         coordinate_loss = tf.reduce_mean(tf.reduce_sum((tf.square(labels[..., 1:] -
                                                                   predictions_ab[..., 1:]) * tf.expand_dims(mask, 4)),
-                                                       axis=[1, 2, 3, 4])) * self.COORD_SCALE
+                                                       axis=[1, 2, 3, 4])) * 40.
         # anchor_loss = tf.reduce_mean(tf.reduce_sum(tf.square(labels[..., 3:] -
         #                 predictions_ab[..., 3:]) * tf.expand_dims(iou_mask, 4), axis=[1, 2, 3, 4])) * self.ANCHOR_SCALE
         noobj_loss = tf.reduce_mean(tf.reduce_sum(tf.square(predictions_ab[..., 0]) * threshold_noobj_mask,
-                                                  axis=[1, 2, 3]))
+                                                  axis=[1, 2, 3])) * 2.
 
         # noobj_loss = tf.reduce_mean(tf.reduce_sum(-tf.log(tf.clip_by_value(
         #     1-predictions_ab[..., 0], 1e-10, 1.0)) * noobj_mask, axis=[1, 2, 3]))
@@ -347,7 +542,16 @@ class Model(object):
 
         obj_loss = tf.reduce_mean(tf.reduce_sum(-tf.log(tf.clip_by_value(predictions_ab[..., 0], 1e-10, 1.0)) *
                                                 tf.square(1 - predictions_ab[..., 0]) * mask,
-                                                axis=[1, 2, 3])) * 8.
+                                                axis=[1, 2, 3])) * 5.
+
+        # cls_loss = tf.reduce_mean(tf.reduce_sum(
+        #     tf.nn.softmax_cross_entropy_with_logits(labels=raw_labels[..., 5:],
+        #                                             logits=raw_predictions[..., 45:]) * raw_labels[..., 0],
+        #                                             axis=[1, 2])) * 0.5
+
+        cls_loss = tf.reduce_mean(tf.reduce_sum(
+            tf.square(raw_labels[..., 5:] - raw_predictions[..., 45:]) * tf.expand_dims(raw_labels[..., 0], 3),
+            axis=[1, 2, 3])) * 8.
 
         # obj_loss = tf.reduce_mean(tf.reduce_sum(tf.square(iou_predict_truth-predictions_ab[..., 0]) * mask,
         #                                         axis=[1, 2, 3])) * self.OBJECT_SCALE
@@ -356,16 +560,19 @@ class Model(object):
         # obj_loss_ = tf.reduce_mean(tf.reduce_sum(tf.square(mask-predictions_ab[..., 0]) * mask,
         #                                          axis=[1, 2, 3])) * 100.
 
-        losses = coordinate_loss + noobj_loss + obj_loss + noobj_loss_
+        # losses = obj_loss + noobj_loss + noobj_loss_ + cls_loss
+
+        losses = coordinate_loss + noobj_loss + obj_loss + noobj_loss_ + cls_loss
 
         tf.summary.scalar('coordinate_loss', coordinate_loss)
         tf.summary.scalar('noobj_loss', noobj_loss)
         tf.summary.scalar('obj_loss', obj_loss)
+        tf.summary.scalar('cls_loss', cls_loss)
         tf.summary.scalar('total_loss', losses)
         # tf.summary.scalar('noobj_loss_', noobj_loss_)
         # tf.summary.scalar('obj_loss_', obj_loss_)
 
-        return losses, obj_loss
+        return losses
 
     def cal_iou(self, predictions_boxes, labels_boxes):
         offset_x = tf.constant([x / self.num_grids for x in range(self.num_grids)] * self.num_grids, dtype=tf.float32)
@@ -403,7 +610,7 @@ class Model(object):
         return intersection / union
 
     def labels_handler(self, labels):
-        s_labels = np.zeros((self.batch_size, self.num_grids, self.num_grids, 5), dtype=np.float32)
+        s_labels = np.zeros((self.batch_size, self.num_grids, self.num_grids, 25), dtype=np.float32)
         for i in range(self.batch_size):
             for label in labels[i]:
                 x = (label[1] + label[3]) / 2
@@ -418,38 +625,60 @@ class Model(object):
                 x_offset, y_offset = (x - x_ind / self.num_grids) * self.num_grids, \
                                      (y - y_ind / self.num_grids) * self.num_grids
                 s_labels[i, x_ind, y_ind, 0] = 1.
-                s_labels[i, x_ind, y_ind, 1:] = x_offset, y_offset, w, h
+                s_labels[i, x_ind, y_ind, 1:5] = x_offset, y_offset, w, h
+                s_labels[i, x_ind, y_ind, self.VOC_LABELS[label[0]] + 5] = 1.
         return s_labels
 
     def train(self):
         print('loading data from :' + self.image_path)
         inputs_ph = tf.placeholder(tf.float32, (None, self.image_size, self.image_size, 3))
-        labels_ph = tf.placeholder(tf.float32, (None, self.num_grids, self.num_grids, 5))
+        labels_ph = tf.placeholder(tf.float32, (None, self.num_grids, self.num_grids, 25))
 
         tf.summary.image('image', inputs_ph, 8)
 
-        predictions = self.new_network(inputs_ph)
-
         train_data = data.Data(self.image_path, self.batch_size, self.image_size)
 
-        loss, iou = self.new_loss(labels_ph, predictions)
+        predictions, vgg = self.VGG_net(inputs_ph)
+        loss = self.new_loss(labels_ph, predictions)
 
         global_step = tf.Variable(0, trainable=False)
-
         optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(loss, global_step=global_step)
 
-        saver = tf.train.Saver()
+        s_saver = tf.train.Saver(keep_checkpoint_every_n_hours=2)
 
         with tf.Session() as sess:
             merged_summary_op = tf.summary.merge_all()
-            summary_writer = tf.summary.FileWriter('./tensorboard', sess.graph)
+            summary_writer = tf.summary.FileWriter(self.tensorboard_path, sess.graph)
             if len(os.listdir(self.save_path)) != 0:
+                sess.run(tf.global_variables_initializer())
                 print('restoring from', tf.train.latest_checkpoint(self.save_path))
-                saver.restore(sess, tf.train.latest_checkpoint(self.save_path))
+                # variables = tf.contrib.framework.get_variables_to_restore()
+                # variables_to_restore = [v for v in variables if v.name.split('/')[0] != 'conv35']
+                try:
+                    saver = tf.train.Saver(keep_checkpoint_every_n_hours=2,
+                                           reshape=True)
+                    saver.restore(sess, tf.train.latest_checkpoint(self.save_path))
+                except:
+                    variables = tf.contrib.framework.get_variables_to_restore()
+                    variables_to_restore = [v for v in variables if v.name.split('/')[0] not in self.exclude_node]
+                    # saver = tf.train.Saver(variables_to_restore, keep_checkpoint_every_n_hours=2,
+                    #                        allow_empty=True, reshape=True)
+                    # saver.restore(sess, tf.train.latest_checkpoint(self.save_path))
+                    init_fn = slim.assign_from_checkpoint_fn(
+                        tf.train.latest_checkpoint(self.save_path),
+                        variables_to_restore,
+                        ignore_missing_vars=True,
+                        reshape_variables=True
+                    )
+                    init_fn(sess)
             else:
                 sess.run(tf.global_variables_initializer())
+                if sess.run(global_step) == 0:
+                    print('loading weight from %s' % self.vgg_npz_path)
+                    vgg.load_weights(self.vgg_npz_path, sess)
+            sum = 0
             for i in range(1, 30000):
-                images, labels = train_data.load_data()
+                images, labels = train_data.load_data(data_augmentation=0)
                 # images, labels = train_data.load_test_data(0)
                 labels = self.labels_handler(labels)
                 # np.set_printoptions(edgeitems=1000000)
@@ -465,13 +694,16 @@ class Model(object):
 
                 _, step, losses = sess.run([optimizer, global_step, loss],
                                            feed_dict={inputs_ph: images, labels_ph: labels})
+                sum += losses
                 if i % 10 == 0:
-                    print('Global: %d, loss is: %f' % (step, losses))
-                if i % 40 == 0:
+                    llosses = sum / 10.
+                    sum = 0
+                    print('Global step: %d, 10 steps mean loss is: %f' % (step, llosses))
+                # if i % 40 == 0:
                     summary_str = sess.run(merged_summary_op, feed_dict={inputs_ph: images, labels_ph: labels})
                     summary_writer.add_summary(summary_str, global_step=step)
                 if i % 500 == 0:
-                    saver.save(sess, self.save_path, global_step=global_step)
+                    s_saver.save(sess, self.save_path, global_step=global_step)
                     print('save model success')
 
     def evaluate(self):
@@ -481,15 +713,16 @@ class Model(object):
         image = cv2.resize(image, (self.image_size, self.image_size)) / 255.0
         input = tf.placeholder(tf.float32, (None, self.image_size, self.image_size, 3))
 
-        predictions = self.new_network(input)
+        predictions = self.new_network_1(input)
 
         saver = tf.train.Saver()
         with tf.Session() as sess:
             print('evaluate...')
             print('restoring from', tf.train.latest_checkpoint(self.save_path))
             saver.restore(sess, tf.train.latest_checkpoint(self.save_path))
-            result = sess.run(predictions, feed_dict={input: [image]})
-            result = np.reshape(result, (1, self.num_grids, self.num_grids, self.num_anchors, 5))
+            raw_result = sess.run(predictions, feed_dict={input: [image]})
+            result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.num_anchors, 5))
+            result_cls = raw_result[..., 45:]
             for i in range(self.num_grids):
                 for j in range(self.num_grids):
                     k = np.where(result[0, i, j, :, 0] == np.max(result[0, i, j, :, 0]))
@@ -497,15 +730,53 @@ class Model(object):
                     # if result[0, i, j, 0] > -0.01:
                     if True:
                         print(str(i * self.num_grids + j), str(result[0, i, j, k, :]))
-            cv2.imshow('', self.visual(image, result[0], sess=sess, threshold=0.3))
+                        # print(str(result[0, i, j, :]))
+            cv2.imshow('', self.visual(image, result[0], result_cls[0], threshold=0.2))
             cv2.waitKey(0)
 
+    def evaluate_loop(self):
+
+        # image = cv2.imread('./image/000030.jpg')
+        # image_path = '/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2008_test/VOCdevkit/VOC2008/JPEGImages'
+        image_path = '/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2010_test/VOC2010/JPEGImages'
+        # image_path = '/home/kevin/DataSet/COCO/VOC_COCO_with_cls/JPEGImages'
+        # image_path = '/home/kevin/DataSet/bread/JPEGImages'
+        # image_path = '/home/kevin/DataSet/VOCdevkit/VOC2007/JPEGImages'
+        image_list = os.listdir(image_path)
+        image_list.sort()
+        # image = cv2.imread('/home/kevin/DataSet/COCO/val2017/000000000885.jpg')
+        input = tf.placeholder(tf.float32, (None, self.image_size, self.image_size, 3))
+
+        predictions, vgg = self.VGG_net(input)
+
+        saver = tf.train.Saver()
+        with tf.Session() as sess:
+            print('evaluate...')
+            print('restoring from', tf.train.latest_checkpoint(self.save_path))
+            saver.restore(sess, tf.train.latest_checkpoint(self.save_path))
+            for img_path in image_list:
+                image = cv2.imread(os.path.join(image_path, img_path))
+                image = cv2.resize(image, (self.image_size, self.image_size)) / 255.0
+                raw_result = sess.run(predictions, feed_dict={input: [image]})
+                result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.num_anchors, 5))
+                result_cls = raw_result[..., 45:]
+                for i in range(self.num_grids):
+                    for j in range(self.num_grids):
+                        k = np.where(result[0, i, j, :, 0] == np.max(result[0, i, j, :, 0]))
+                        # k = result[0, i, j, :, 0].index(max(result[0, i, j, :, 0]))
+                        # if result[0, i, j, 0] > -0.01:
+                        if True:
+                            print(str(i * self.num_grids + j), str(result[0, i, j, k, :]))
+                            # print(str(result[0, i, j, :]))
+                cv2.imshow('', cv2.resize(self.visual(image, result[0], result_cls[0], threshold=0.21), (448, 448)))
+                cv2.waitKey(0)
+
     def webcam(self):
-        # cameraCapture = cv2.VideoCapture('./image/03.avi')
+        # cameraCapture = cv2.VideoCapture('./image/01.avi')
         cameraCapture = cv2.VideoCapture(0)
 
         input = tf.placeholder(tf.float32, (None, self.image_size, self.image_size, 3))
-        predictions = self.new_network(input)
+        predictions = self.new_network_1(input)
         # videoWriter = cv2.VideoWriter(
         #     'output.avi', cv2.VideoWriter_fourcc('I', '4', '2', '0'), 30, (300, 300)
         # )
@@ -515,51 +786,68 @@ class Model(object):
             while True:
                 res, frame = cameraCapture.read()
                 frame = cv2.resize(frame, (300, 300)) / 255.0
-                result = sess.run(predictions, feed_dict={input: [frame]})
-                result = np.reshape(result, (1, self.num_grids, self.num_grids, self.num_anchors, 5))
-                image = self.visual(frame, result[0], sess, threshold=0.4)
-
+                raw_result = sess.run(predictions, feed_dict={input: [frame]})
+                result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.num_anchors, 5))
+                result_cls = raw_result[..., 45:]
+                # result = sess.run(predictions, feed_dict={input: [frame]})
+                # result = np.reshape(result, (1, self.num_grids, self.num_grids, self.num_anchors, 5))
+                image = self.visual(frame, result[0], result_cls[0], threshold=0.3)
                 cv2.imshow(' ', image)
                 cv2.waitKey(20)
 
-    def visual(self, image, labels, sess, threshold=0.5):
-        anchor_boxes = sess.run(self.anchor_boxes())
-        boxes, scores = [], []
-        for i in range(self.num_grids):
-            for j in range(self.num_grids):
-                k = np.where(labels[i, j, :, 0] == np.max(labels[i, j, :, 0]))
-                k = k[0][0]
-                # if i*19+j==104:
-                if labels[i, j, k, 0] > threshold:
-                    print(i * 19 + j)
-                    center_x = (labels[i, j, k, 1] + i) / self.num_grids
-                    center_y = (labels[i, j, k, 1] + j) / self.num_grids
-                    xmin, xmax = int((center_x - labels[i, j, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size), \
-                                 int((center_x + labels[i, j, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size)
-                    ymin, ymax = int((center_y - labels[i, j, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size), \
-                                 int((center_y + labels[i, j, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size)
-                    coord = [ymin, xmin, ymax, xmax]
-                    boxes.append(coord)
-                    scores.append(labels[i, j, k, 0])
-
-        try:
-            truth_boxes = tf.image.non_max_suppression(np.array(boxes), np.array(scores), 10, 0.2)
-            for i in sess.run(truth_boxes):
-                # r, g, b = random.random(), random.random(), random.random()
-                cv2.rectangle(image, (boxes[i][1], boxes[i][0]), (boxes[i][3], boxes[i][2]), (0, 1, 0))
-        except:
-            print('No bbox')
+    def visual(self, image, labels, result_cls, threshold=0.5):
+        tf.reset_default_graph()
+        with tf.Session() as sess:
+            anchor_boxes = sess.run(self.anchor_boxes())
+            boxes, scores, cls = [], [], []
+            for i in range(self.num_grids):
+                for j in range(self.num_grids):
+                    k = np.where(labels[i, j, :, 0] == np.max(labels[i, j, :, 0]))
+                    k = k[0][0]
+                    # if i*19+j==104:
+                    if labels[i, j, k, 0] > threshold:
+                        print(i * 19 + j)
+                        center_x = (labels[i, j, k, 1] + i) / self.num_grids
+                        center_y = (labels[i, j, k, 1] + j) / self.num_grids
+                        xmin, xmax = int((center_x - labels[i, j, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size), \
+                                     int((center_x + labels[i, j, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size)
+                        ymin, ymax = int((center_y - labels[i, j, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size), \
+                                     int((center_y + labels[i, j, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size)
+                        xmin = 1 if xmin <= 0 else xmin
+                        ymin = 1 if ymin <= 0 else ymin
+                        xmax = self.image_size - 1 if xmax >= self.image_size else xmax
+                        ymax = self.image_size - 1 if ymax >= self.image_size else ymax
+                        coord = [ymin, xmin, ymax, xmax]
+                        boxes.append(coord)
+                        scores.append(labels[i, j, k, 0])
+                        cls.append(tf.arg_max(result_cls[i, j], -1))
+            try:
+                truth_boxes = tf.image.non_max_suppression(np.array(boxes), np.array(scores), 10, 0.3)
+                truth_boxes = sess.run(truth_boxes)
+                cls = sess.run(cls)
+                for i in truth_boxes:
+                    # r, g, b = random.random(), random.random(), random.random()
+                    cv2.rectangle(image, (boxes[i][1], boxes[i][0]), (boxes[i][3], boxes[i][2]), (0, 1, 0), 1)
+                    for k in self.VOC_LABELS.keys():
+                        if self.VOC_LABELS[k] == cls[i]:
+                            print(k)
+                            cv2.putText(image, str(k)+str(scores[i])[:4], (boxes[i][1], boxes[i][0]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+                            # cv2.putText(image, str(k), (boxes[i][1], boxes[i][0]),
+                            #             cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+            except:
+                print('No bbox')
+        tf.get_default_graph().finalize()
         return image
 
     def leaky_relu(self, alpha):
         def op(inputs):
             return tf.maximum(alpha * inputs, inputs, name='leaky_relu')
-
         return op
 
 
-# Model().train()
+Model().train()
 # Model().evaluate()
-Model().webcam()
+# Model().evaluate_loop()
+# Model().webcam()
 # sess = tf.InteractiveSession()
 # print(sess.run(Model().anchor_boxes()))
