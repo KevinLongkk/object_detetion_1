@@ -17,7 +17,8 @@ from tensorflow.contrib import slim
 
 class vgg16(object):
     def __init__(self, imgs, pre_per_cell, weights=None):
-        self.imgs = imgs
+        # self.imgs = imgs
+        self.imgs = imgs * 2.0 - 1.0
         self.pre_per_cell = pre_per_cell
         # self.convlayers()
         # self.fc_layers()
@@ -193,7 +194,7 @@ class vgg16(object):
 
         net = slim.conv2d(self.conv4_3, 512, 3, padding='valid', scope='conv5')
 
-        FPN_1 = slim.conv2d(net, 128, 3, 2, padding='SAME', scope='FPN_1')
+        # FPN_1 = slim.conv2d(net, 128, 3, 2, padding='SAME', scope='FPN_1')
 
         net_1 = slim.conv2d(net, 256, 9, 2, padding='SAME', scope='conv6_1')
         net_2 = slim.conv2d(net, 256, 5, 2, padding='SAME', scope='conv6_2')
@@ -201,15 +202,15 @@ class vgg16(object):
         net_4 = slim.conv2d(net, 256, 2, 2, padding='SAME', scope='conv6_4')
         net = tf.concat([net_1, net_2, net_3, net_4], axis=-1)
 
-        FPN_2 = slim.conv2d(net, 128, 3, padding='SAME', scope='FPN_2')
+        # FPN_2 = slim.conv2d(net, 128, 3, padding='SAME', scope='FPN_2')
+        #
+        # shortcut = net
+        # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='add_conv6_2')
+        # net = slim.conv2d(net, 512, 3, padding='SAME', scope='add_conv6_3')
+        # net = slim.conv2d(net, 1024, 3, padding='SAME', scope='add_conv6_4')
+        # net += shortcut
 
-        shortcut = net
-        net = slim.conv2d(net, 1024, 3, padding='SAME', scope='add_conv6_2')
-        net = slim.conv2d(net, 512, 3, padding='SAME', scope='add_conv6_3')
-        net = slim.conv2d(net, 1024, 3, padding='SAME', scope='add_conv6_4')
-        net += shortcut
-
-        net = slim.conv2d(net, 512, 3, padding='SAME', scope='add_conv_7')
+        # net = slim.conv2d(net, 512, 3, padding='SAME', scope='add_conv_7')
 
         net_1 = slim.conv2d(net, 64, 7, padding='SAME', scope='conv7_1')
         net_2 = slim.conv2d(net, 64, 5, padding='SAME', scope='conv7_2')
@@ -217,7 +218,7 @@ class vgg16(object):
         net_4 = slim.conv2d(net, 64, 2, padding='SAME', scope='conv7_4')
         net = tf.concat([net_1, net_2, net_3, net_4], axis=-1)
 
-        FPN_3 = slim.conv2d(net, 128, 3, padding='SAME', scope='FPN_3')
+        # FPN_3 = slim.conv2d(net, 128, 3, padding='SAME', scope='FPN_3')
 
         net_1 = slim.conv2d(net, 32, 7, padding='SAME', scope='conv8_1')
         net_2 = slim.conv2d(net, 32, 5, padding='SAME', scope='conv8_2')
@@ -225,10 +226,12 @@ class vgg16(object):
         net_4 = slim.conv2d(net, 32, 1, padding='SAME', scope='conv8_4')
         net = tf.concat([net_1, net_2, net_3, net_4], axis=-1)
 
-        net = net + FPN_1 + FPN_2 + FPN_3
+        # net = net + FPN_1 + FPN_2 + FPN_3
 
-        cls_net = slim.conv2d(net, 20 * self.pre_per_cell, 2, padding='SAME', scope='cls_conv1')
-        cls_net = slim.conv2d(cls_net, 20 * self.pre_per_cell, 1, padding='SAME', scope='cls_conv2')
+        cls_net = slim.conv2d(net, (20+4) * self.pre_per_cell, 2, padding='SAME', scope='cls_conv1')
+        cls_net = slim.conv2d(cls_net, (20+4) * self.pre_per_cell, 2, padding='SAME', scope='cls_conv2')
+        cls_net = slim.conv2d(cls_net, (20+4) * self.pre_per_cell, 3, padding='SAME', scope='cls_conv3')
+        cls_net = slim.conv2d(cls_net, (20+4) * self.pre_per_cell, 1, padding='SAME', scope='cls_conv4')
 
         box_net = slim.conv2d(net, 45 * self.pre_per_cell, 2, padding='SAME', scope='box_conv1')
         box_net = slim.conv2d(box_net, 45 * self.pre_per_cell, 1, padding='SAME', scope='box_conv2')

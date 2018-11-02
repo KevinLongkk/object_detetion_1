@@ -13,21 +13,24 @@ class evaluate(object):
         self.check(self.test_flag)
         self.save_path = save_path
 
-        self.checkpoint_path = './log'
+        self.checkpoint_path = './dense_log_2'
 
         self.test_format = 'comp3_det_test_'
         self.val_format = 'comp3_det_val_'
 
-        self.image_size = 300
-        self.num_grids = 10
-        self.num_anchors = 9
-        self.inputs = tf.placeholder(tf.float32, [None, self.image_size, self.image_size, 3])
-
         self.VOC_model = VOC_model.Model()
-        self.network, _ = self.VOC_model.VGG_net(self.inputs)
-
         self.anchor_boxes = self.VOC_model.anchor_boxes
         self.predict_per_cell = self.VOC_model.predict_per_cell
+        self.image_size = self.VOC_model.image_size
+        self.num_grids = self.VOC_model.num_grids
+        self.num_anchors = self.VOC_model.num_anchors
+        self.base_class = self.VOC_model.base_class
+
+        self.inputs = tf.placeholder(tf.float32, [None, self.image_size, self.image_size, 3])
+
+        self.network = self.VOC_model.networt(self.inputs)
+
+        self.threshold = 0.25
 
         self.VOC_LABELS = {
             'aeroplane': 0,
@@ -104,12 +107,12 @@ class evaluate(object):
                 image = cv2.resize(image, (self.image_size, self.image_size)) / 255.0
                 time_ = time.time()
                 raw_result = sess.run(predictions, feed_dict={self.inputs: [image]})
-                raw_result = np.reshape(raw_result, [1, self.num_grids, self.num_grids, self.predict_per_cell, 65])
+                raw_result = np.reshape(raw_result, [1, self.num_grids, self.num_grids, self.predict_per_cell, 65+4])
                 sess_time = time.time() - time_
                 result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.predict_per_cell,
                                                            self.num_anchors, 5))
                 result_cls = raw_result[..., 45:]
-                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height, threshold=0.3)
+                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height, threshold=self.threshold)
                 print(index, 'sess time:', sess_time, )
                 if index % 200 == 0:
                     files = self.open_files(format)
@@ -143,11 +146,21 @@ class evaluate(object):
                             coord = [ymin, xmin, ymax, xmax]
                             boxes.append(coord)
                             scores.append(labels[i, j, m, k, 0])
-                            cls.append(tf.arg_max(result_cls[i, j, m], -1))
+                            # cls.append(tf.arg_max(result_cls[i, j, m], -1))
+                            base_class = sess.run(tf.arg_max(result_cls[i, j, m, 20:], -1))
+                            base_cls_list, cls_list, cls_key = None, [], None
+                            for key in self.base_class.keys():
+                                if self.base_class[key][0] == base_class:
+                                    base_cls_list = list(self.base_class[key][1])
+                                    cls_key = key
+                                    break
+                            for c in base_cls_list:
+                                cls_list.append(result_cls[i, j, m, c])
+                            cls.append(self.base_class[cls_key][1][sess.run(tf.arg_max(cls_list, -1))])
 
             try:
-                truth_boxes = tf.image.non_max_suppression(np.array(boxes), np.array(scores), 10, 0.3)
-                cls = sess.run(cls)
+                truth_boxes = tf.image.non_max_suppression(np.array(boxes), np.array(scores), 10, 0.5)
+                # cls = sess.run(cls)
                 truth_boxes = sess.run(truth_boxes)
                 for i in truth_boxes:
                     # r, g, b = random.random(), random.random(), random.random()
@@ -180,5 +193,5 @@ class evaluate(object):
 
 
 evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC2012',
-         test_flag='VOC2012_validation', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2018_10_21_VOC2012_val').main()
+         test_flag='VOC2012_validation', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2018_11_02_VOC2012_val').main()
 
