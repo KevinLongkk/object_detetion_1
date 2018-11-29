@@ -13,12 +13,12 @@ class evaluate(object):
         self.check(self.test_flag)
         self.save_path = save_path
 
-        self.checkpoint_path = './dense_log_2'
+        self.checkpoint_path = './VOC_fine_tune'
 
         self.test_format = 'comp3_det_test_'
         self.val_format = 'comp3_det_val_'
 
-        self.VOC_model = VOC_model.Model()
+        self.VOC_model = VOC_model.Model(is_training=False)
         self.anchor_boxes = self.VOC_model.anchor_boxes
         self.predict_per_cell = self.VOC_model.predict_per_cell
         self.image_size = self.VOC_model.image_size
@@ -30,7 +30,7 @@ class evaluate(object):
 
         self.network = self.VOC_model.networt(self.inputs)
 
-        self.threshold = 0.25
+        self.threshold = 0.4
 
         self.VOC_LABELS = {
             'aeroplane': 0,
@@ -101,18 +101,22 @@ class evaluate(object):
 
             anchor_boxes = sess.run(self.anchor_boxes())
             for img_path in image_list:
-                image = cv2.imread(os.path.join(image_path, img_path))
+                # print(img_path)
+                raw_image = cv2.imread(os.path.join(image_path, img_path))
                 # print(os.path.join(image_path, img_path))
-                width, height = image.shape[1], image.shape[0]
+                width, height = raw_image.shape[1], raw_image.shape[0]
+                image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB)
                 image = cv2.resize(image, (self.image_size, self.image_size)) / 255.0
                 time_ = time.time()
                 raw_result = sess.run(predictions, feed_dict={self.inputs: [image]})
+                # print(image)
+                # print(raw_result)
                 raw_result = np.reshape(raw_result, [1, self.num_grids, self.num_grids, self.predict_per_cell, 65+4])
                 sess_time = time.time() - time_
                 result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.predict_per_cell,
                                                            self.num_anchors, 5))
                 result_cls = raw_result[..., 45:]
-                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height, threshold=self.threshold)
+                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height, threshold=self.threshold, image=raw_image)
                 print(index, 'sess time:', sess_time, )
                 if index % 200 == 0:
                     files = self.open_files(format)
@@ -127,7 +131,7 @@ class evaluate(object):
                 files[i].write(self.result_str[i])
                 files[i].close()
 
-    def visual(self, anchor_boxes, img_path, labels, result_cls, width, height, threshold=0.5):
+    def visual(self, anchor_boxes, img_path, labels, result_cls, width, height, threshold=0.5, image=None):
         tf.reset_default_graph()
         with tf.Session() as sess:
             boxes, scores, cls = [], [], []
@@ -139,10 +143,14 @@ class evaluate(object):
                         if labels[i, j, m, k, 0] > threshold:
                             center_x = (labels[i, j, m, k, 1] + i) / self.num_grids
                             center_y = (labels[i, j, m, k, 1] + j) / self.num_grids
-                            xmin, xmax = int((center_x - labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size), \
-                                         int((center_x + labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * self.image_size)
-                            ymin, ymax = int((center_y - labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size), \
-                                         int((center_y + labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * self.image_size)
+                            xmin, xmax = int((center_x - labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width), \
+                                         int((center_x + labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width)
+                            ymin, ymax = int((center_y - labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * height), \
+                                         int((center_y + labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * height)
+                            xmin = 1 if xmin <= 0 else xmin
+                            ymin = 1 if ymin <= 0 else ymin
+                            xmax = width - 1 if xmax >= width else xmax
+                            ymax = height - 1 if ymax >= height else ymax
                             coord = [ymin, xmin, ymax, xmax]
                             boxes.append(coord)
                             scores.append(labels[i, j, m, k, 0])
@@ -164,13 +172,16 @@ class evaluate(object):
                 truth_boxes = sess.run(truth_boxes)
                 for i in truth_boxes:
                     # r, g, b = random.random(), random.random(), random.random()
-                    xmin, ymin = max(boxes[i][1]*width/self.image_size, 0.), max(boxes[i][0]*height/self.image_size, 0.)
-                    xmax, ymax = min(boxes[i][3]*width/self.image_size, float(width)), \
-                                 min(boxes[i][2]*height/self.image_size, float(height))
+                    xmin, ymin = boxes[i][1], boxes[i][0]
+                    xmax, ymax = boxes[i][3], boxes[i][2]
+                    # cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)
+                    # cv2.imshow(' ', image)
+                    # print(scores[i], xmin, ymin, xmax, ymax)
+                    # cv2.waitKey(0)
                     for k in self.VOC_LABELS.keys():
                         if self.VOC_LABELS[k] == cls[i]:
                             self.result_str[self.VOC_LABELS[k]] += \
-                                '%s %f %f %f %f %f\n' % (img_path[:-4], scores[i], xmin+1., ymin+1., xmax, ymax)
+                                '%s %f %f %f %f %f\n' % (img_path[:-4], scores[i], xmin, ymin, xmax, ymax)
                             break
             except:
                 print('No bbox')
@@ -192,6 +203,6 @@ class evaluate(object):
         self.evaluate_loop(format)
 
 
-evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC2012',
-         test_flag='VOC2012_validation', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2018_11_02_VOC2012_val').main()
+evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2010_test/VOC2010',
+         test_flag='VOC2010', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2018_11_28_VOC2010').main()
 
