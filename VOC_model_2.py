@@ -107,7 +107,7 @@ class Model(object):
             'chair': 1.5,
             'cow': 1.4,
             'diningtable': 0.55,  # 2.0
-            'dog': 1.35,
+            'dog': 1.2,
             'horse': 1.3,
             'motorbike': 1.1,
             'person': 1.0,
@@ -436,10 +436,13 @@ class Model(object):
                                                           predictions_ab[..., 1:3]) * tf.expand_dims(mask, 5)),
                                                          axis=[1, 2, 3, 4, 5])) * self.COORD_SCALE
 
+        coordinate_loss_1_1 = tf.reduce_mean(tf.reduce_sum(tf.square(predictions_[..., 1]-predictions_[..., 2]) * mask,
+                                             axis=[1, 2, 3, 4])) * 0.01
+
         coordinate_loss_2 = tf.reduce_mean(tf.reduce_sum((tf.square(labels[..., 3:] -
                                                           predictions_ab[..., 3:]) * tf.expand_dims(mask, 5)),
                                                          axis=[1, 2, 3, 4, 5])) * self.COORD_SCALE
-        coordinate_loss = coordinate_loss_1 + coordinate_loss_2
+        coordinate_loss = coordinate_loss_1 + coordinate_loss_2 + coordinate_loss_1_1
 
         noobj_loss = tf.reduce_mean(tf.reduce_sum(tf.square(predictions_ab[..., 0]) * threshold_noobj_mask,
                                                   axis=[1, 2, 3, 4])) * self.NOOBJECT_SCALE
@@ -546,6 +549,36 @@ class Model(object):
         return intersection / union
 
     def labels_handler(self, labels):
+        s_labels = np.zeros((self.batch_size, self.num_grids, self.num_grids,
+                             self.labels_handler_num, 25+self.num_base_class), dtype=np.float32)
+        for i in range(self.batch_size):
+            for label in labels[i]:
+                x = (label[1] + label[3]) / 2
+                y = (label[2] + label[4]) / 2
+                w = label[3] - label[1]
+                h = label[4] - label[2]
+                for j in range(self.num_grids):
+                    if x > j / self.num_grids:
+                        x_ind = j
+                    if y > j / self.num_grids:
+                        y_ind = j
+                x_offset, y_offset = (x - x_ind / self.num_grids) * self.num_grids, \
+                                     (y - y_ind / self.num_grids) * self.num_grids
+                for k in range(self.labels_handler_num):
+                    if sum(s_labels[i, x_ind, y_ind, k]) == 0.:
+                        s_labels[i, x_ind, y_ind, k, 0] = 1.
+                        s_labels[i, x_ind, y_ind, k, 1:5] = x_offset, y_offset, w, h
+                        s_labels[i, x_ind, y_ind, k, self.VOC_LABELS[label[0]] + 5] = self.class_weight[label[0]]
+                        # s_labels[i, x_ind, y_ind, k, self.VOC_LABELS[label[0]] + 5] = 1.
+
+                        base_class = self.new_VOC_LABELS[label[0]][1]
+                        base_class_index = self.base_class[base_class][0]
+                        s_labels[i, x_ind, y_ind, k, 25 + base_class_index] = 1.0
+
+                        break
+        return s_labels
+    
+    def labels_handler_bak(self, labels):
         s_labels = np.zeros((self.batch_size, self.num_grids, self.num_grids,
                              self.predict_per_cell, 25+self.num_base_class), dtype=np.float32)
         for i in range(self.batch_size):
@@ -795,8 +828,8 @@ class Model(object):
                     break
 
     def webcam(self):
-        cameraCapture = cv2.VideoCapture('./image/test3.mp4')
-        # cameraCapture = cv2.VideoCapture(0)
+        # cameraCapture = cv2.VideoCapture('./image/test3.mp4')
+        cameraCapture = cv2.VideoCapture(0)
 
         input = tf.placeholder(tf.float32, (None, self.image_size, self.image_size, 3))
         predictions, mask = self.networt(input)
@@ -826,6 +859,87 @@ class Model(object):
                     break
 
     def visual(self, image, labels, result_cls, threshold=0.5):
+        tf.reset_default_graph()
+        with tf.Session() as sess:
+            anchor_boxes = sess.run(self.anchor_boxes())
+            boxes_1, scores_1, cls_1 = [], [], []
+            # boxes_2, scores_2, cls_2 = [], [], []
+            width, height = image.shape[1], image.shape[0]
+            for m in range(self.predict_per_cell):
+                for i in range(self.num_grids):
+                    for j in range(self.num_grids):
+                        k = np.where(labels[i, j, m, :, 0] == np.max(labels[i, j, m, :, 0]))
+                        k = k[0][0]
+                        # if i*19+j==104:
+                        print(str(i * self.num_grids + j) + '_' + str(k) + ' ' + str(labels[i, j, m, k, 0]))
+                        if labels[i, j, m, k, 0] > threshold:
+
+                            labels[i, j, m, k, 1:3] = np.square(labels[i, j, m, k, 1:3])
+                            # anchor_boxes[k][0] = np.square(anchor_boxes[k][0])
+                            # anchor_boxes[k][1] = np.square(anchor_boxes[k][1])
+                            # labels[i, j, m, k, 1:5] /= 100.
+
+                            print(str(i * self.num_grids + j) + '_' + str(m))
+                            center_x = (labels[i, j, m, k, 1] + i) / self.num_grids
+                            center_y = (labels[i, j, m, k, 2] + j) / self.num_grids
+                            xmin, xmax = int((center_x - labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width), \
+                                         int((center_x + labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width)
+                            ymin, ymax = int((center_y - labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * height), \
+                                         int((center_y + labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * height)
+                            if xmin == xmax:
+                                break
+                            xmin = 1 if xmin <= 0 else xmin
+                            ymin = 1 if ymin <= 0 else ymin
+                            xmax = width - 1 if xmax >= width else xmax
+                            ymax = height - 1 if ymax >= height else ymax
+                            coord = [ymin, xmin, ymax, xmax]
+
+                            boxes_1.append(coord)
+                            scores_1.append(labels[i, j, m, k, 0])
+
+                            print(result_cls[i, j, m, :4])
+                            print(result_cls[i, j, m, 4:])
+                            base_class = sess.run(tf.arg_max(result_cls[i, j, m, :4], -1))
+                            base_cls_list, cls_list, cls_key = None, [], None
+                            for key in self.base_class.keys():
+                                if self.base_class[key][0] == base_class:
+                                    base_cls_list = list(self.base_class[key][1])
+                                    cls_key = key
+                                    break
+                            for c in base_cls_list:
+                                cls_list.append(result_cls[i, j, m, c+4])
+                            cls_index = sess.run(tf.arg_max(cls_list, -1))
+                            cls_1.append(self.base_class[cls_key][1][cls_index])
+
+            try:
+                truth_boxes_1 = tf.image.non_max_suppression(np.array(boxes_1), np.array(scores_1), 10, 0.45)
+                truth_boxes_1 = sess.run(truth_boxes_1)
+                # cls = sess.run(cls)
+
+                for i in truth_boxes_1:
+                    # r, g, b = random.random(), random.random(), random.random()
+                    print(boxes_1[i][1], boxes_1[i][0], boxes_1[i][3], boxes_1[i][2])
+                    # cv2.circle(image, (int((boxes_1[i][1]+boxes_1[i][3])/2), int((boxes_1[i][0]+boxes_1[i][2])/2)), 2, (255, 0, 0), 1)
+                    cv2.rectangle(image, (boxes_1[i][1], boxes_1[i][0]), (boxes_1[i][3], boxes_1[i][2]), (0, 255, 0), 2)
+                    for k in self.VOC_LABELS.keys():
+                        if self.VOC_LABELS[k] == cls_1[i]:
+                            print(str(k)+str(scores_1[i])[:4])
+                            cv2.putText(image, str(k)+str(scores_1[i])[:4], (boxes_1[i][1], boxes_1[i][0]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+                            # cv2.putText(image, str(k), (boxes[i][1], boxes[i][0]),
+                            #             cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+            except:
+                print('No bbox')
+        # for row in range(1, self.num_grids):
+        #     r = row * height/self.num_grids
+        #     cv2.line(image, (0, int(r)), (width, int(r)), (0, 0, 255), 1)
+        # for col in range(1, self.num_grids):
+        #     c = col * width/self.num_grids
+        #     cv2.line(image, (int(c), 0), (int(c), height), (0, 0, 255), 1)
+        # cv2.resize(image, (300, 300))
+        tf.get_default_graph().finalize()
+        return image
+
+    def visual_bak(self, image, labels, result_cls, threshold=0.5):
         tf.reset_default_graph()
         with tf.Session() as sess:
             anchor_boxes = sess.run(self.anchor_boxes())

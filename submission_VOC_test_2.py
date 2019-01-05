@@ -215,6 +215,6 @@ class evaluate(object):
         self.evaluate_loop(format)
 
 
-evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2012_test/VOC2012',
-         test_flag='VOC2012', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2019_01_04_VOC2012').main()
+evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2010_test/VOC2010',
+         test_flag='VOC2010', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2019_01_05_VOC2007').main()
 
