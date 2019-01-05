@@ -13,7 +13,7 @@ class evaluate(object):
         self.check(self.test_flag)
         self.save_path = save_path
 
-        self.checkpoint_path = './VOC_fine_tune'
+        self.checkpoint_path = '/media/kevin/0E5B14B00E5B14B0/VOC_fine_tune/'
 
         self.test_format = 'comp3_det_test_'
         self.val_format = 'comp3_det_val_'
@@ -30,7 +30,7 @@ class evaluate(object):
 
         self.network = self.VOC_model.networt(self.inputs)
 
-        self.threshold = 0.4
+        self.threshold = 0.40
 
         self.VOC_LABELS = {
             'aeroplane': 0,
@@ -90,7 +90,12 @@ class evaluate(object):
         # image_list = os.listdir(image_path)
         image_list.sort()
 
-        predictions = self.network
+        predictions, _ = self.network
+        raw_predictions = tf.concat((
+            tf.reshape(predictions[..., :48], [1, self.num_grids, self.num_grids,
+                                               self.predict_per_cell, 24]),
+            tf.reshape(predictions[..., 48:], [1, self.num_grids, self.num_grids,
+                                               self.predict_per_cell, 45])), axis=-1)
 
         saver = tf.train.Saver()
         with tf.Session() as sess:
@@ -108,16 +113,22 @@ class evaluate(object):
                 image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB)
                 image = cv2.resize(image, (self.image_size, self.image_size)) / 255.0
                 time_ = time.time()
-                raw_result = sess.run(predictions, feed_dict={self.inputs: [image]})
+
+                raw_result = sess.run(raw_predictions, feed_dict={self.inputs: [image]})
                 # print(image)
                 # print(raw_result)
-                raw_result = np.reshape(raw_result, [1, self.num_grids, self.num_grids, self.predict_per_cell, 65+4])
+                # raw_result = np.reshape(raw_result, [1, self.num_grids, self.num_grids, self.predict_per_cell, 65+4])
                 sess_time = time.time() - time_
-                result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.predict_per_cell,
-                                                           self.num_anchors, 5))
-                result_cls = raw_result[..., 45:]
-                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height, threshold=self.threshold, image=raw_image)
-                print(index, 'sess time:', sess_time, )
+
+                result = np.reshape(raw_result[..., 24:], (1, self.num_grids, self.num_grids,
+                                                           self.predict_per_cell, self.num_anchors, 5))
+                result_cls = raw_result[..., :24]
+                # result = np.reshape(raw_result[..., :45], (1, self.num_grids, self.num_grids, self.predict_per_cell,
+                #                                            self.num_anchors, 5))
+                # result_cls = raw_result[..., 45:]
+                self.visual(anchor_boxes, img_path, result[0], result_cls[0], width, height,
+                            threshold=self.threshold, image=raw_image)
+                print(index, 'sess time:', sess_time)
                 if index % 200 == 0:
                     files = self.open_files(format)
                     for i in range(20):
@@ -141,8 +152,9 @@ class evaluate(object):
                         k = np.where(labels[i, j, m, :, 0] == np.max(labels[i, j, m, :, 0]))
                         k = k[0][0]
                         if labels[i, j, m, k, 0] > threshold:
+                            labels[i, j, m, k, 1:3] = np.square(labels[i, j, m, k, 1:3])
                             center_x = (labels[i, j, m, k, 1] + i) / self.num_grids
-                            center_y = (labels[i, j, m, k, 1] + j) / self.num_grids
+                            center_y = (labels[i, j, m, k, 2] + j) / self.num_grids
                             xmin, xmax = int((center_x - labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width), \
                                          int((center_x + labels[i, j, m, k, 3] / 2 * anchor_boxes[k][0]) * width)
                             ymin, ymax = int((center_y - labels[i, j, m, k, 4] / 2 * anchor_boxes[k][1]) * height), \
@@ -155,7 +167,7 @@ class evaluate(object):
                             boxes.append(coord)
                             scores.append(labels[i, j, m, k, 0])
                             # cls.append(tf.arg_max(result_cls[i, j, m], -1))
-                            base_class = sess.run(tf.arg_max(result_cls[i, j, m, 20:], -1))
+                            base_class = sess.run(tf.arg_max(result_cls[i, j, m, :4], -1))
                             base_cls_list, cls_list, cls_key = None, [], None
                             for key in self.base_class.keys():
                                 if self.base_class[key][0] == base_class:
@@ -163,7 +175,7 @@ class evaluate(object):
                                     cls_key = key
                                     break
                             for c in base_cls_list:
-                                cls_list.append(result_cls[i, j, m, c])
+                                cls_list.append(result_cls[i, j, m, c+4])
                             cls.append(self.base_class[cls_key][1][sess.run(tf.arg_max(cls_list, -1))])
 
             try:
@@ -203,6 +215,6 @@ class evaluate(object):
         self.evaluate_loop(format)
 
 
-evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2010_test/VOC2010',
-         test_flag='VOC2010', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2018_11_28_VOC2010').main()
+evaluate(test_file='/home/kevin/DataSet/VOCdevkit/VOC_test/VOC2012_test/VOC2012',
+         test_flag='VOC2012', save_path='/home/kevin/DataSet/VOCdevkit/VOC_test/submission/SAVE/2019_01_04_VOC2012').main()
 
